@@ -1,0 +1,347 @@
+{
+  "name": "Intelligent Project Status Agent",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "sprint-report",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "da5f5d36-f48f-45f6-b18a-9e3e14e9eac2",
+      "name": "Webhook - Sprint Report",
+      "webhookId": "e6e00687-a99f-449d-8fc4-10f0033a6d13"
+    },
+    {
+      "parameters": {
+        "url": "https://raw.githubusercontent.com/Jubitha/project_status_agent/main/data/scrum_tasks_sprint_1.csv",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        224,
+        0
+      ],
+      "id": "6d10a9e7-4e42-4bb8-8e83-6ae9124269c6",
+      "name": "GitHub - Download Sprint CSV"
+    },
+    {
+      "parameters": {
+        "options": {
+          "delimiter": ",",
+          "headerRow": true
+        }
+      },
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.1,
+      "position": [
+        448,
+        0
+      ],
+      "id": "b06bf33f-1d2e-45bc-8b31-126473627042",
+      "name": "Parse Sprint CSV"
+    },
+    {
+      "parameters": {
+        "jsCode": "const webhookBody =\n  $(\"Webhook - Sprint Report\").first().json.body || {};\n\nconst requestedSprint = webhookBody.sprint || \"Sprint 1\";\nconst question = webhookBody.question || \"\";\n\nconst tasks = $input.all()\n  .map(item => {\n    const row = item.json;\n\n    return {\n      task_id: String(row.task_id || \"\").trim(),\n      task_name: String(row.task_name || \"\").trim(),\n      description: String(row.description || \"\").trim(),\n      status: String(row.status || \"Unknown\").trim(),\n      assignee: String(row.assignee || \"\").trim(),\n      priority: String(row.priority || \"Unknown\").trim(),\n      sprint: String(row.sprint || \"\").trim(),\n      start_date: String(row.start_date || \"\").trim(),\n      due_date: String(row.due_date || \"\").trim(),\n      last_updated: String(row.last_updated || \"\").trim(),\n      blocked: String(row.blocked || \"No\").trim(),\n      blocker_reason: String(row.blocker_reason || \"\").trim(),\n      dependencies: String(row.dependencies || \"\").trim(),\n      tags: String(row.tags || \"\").trim()\n    };\n  })\n  .filter(task => task.sprint === requestedSprint);\n\nconst latestDatasetDate =\n  tasks\n    .map(task => task.last_updated)\n    .filter(Boolean)\n    .sort()\n    .pop() || new Date().toISOString().slice(0, 10);\n\nconst reportDate =\n  webhookBody.report_date || latestDatasetDate;\n\nconst completedStatuses = [\"done\", \"completed\", \"closed\"];\nconst statusCounts = {};\n\nfor (const task of tasks) {\n  statusCounts[task.status] =\n    (statusCounts[task.status] || 0) + 1;\n}\n\nconst blockedTasks = tasks.filter(task => {\n  const status = task.status.toLowerCase();\n  const blocked = task.blocked.toLowerCase();\n\n  return (\n    blocked === \"yes\" ||\n    blocked === \"true\" ||\n    status.includes(\"blocked\") ||\n    status.includes(\"stuck\")\n  );\n});\n\nconst overdueTasks = tasks.filter(task => {\n  const completed = completedStatuses.includes(\n    task.status.toLowerCase()\n  );\n\n  return (\n    task.due_date &&\n    task.due_date < reportDate &&\n    !completed\n  );\n});\n\nconst unassignedTasks =\n  tasks.filter(task => !task.assignee);\n\nconst completedCount =\n  tasks.filter(task =>\n    completedStatuses.includes(task.status.toLowerCase())\n  ).length;\n\nconst completionRate = tasks.length\n  ? Math.round((completedCount / tasks.length) * 100)\n  : 0;\n\nlet sprintHealth = \"HEALTHY\";\n\nif (blockedTasks.length >= 2 || overdueTasks.length >= 3) {\n  sprintHealth = \"CRITICAL\";\n} else if (\n  blockedTasks.length === 1 ||\n  overdueTasks.length > 0 ||\n  unassignedTasks.length > 0\n) {\n  sprintHealth = \"AT RISK\";\n}\n\nreturn [\n  {\n    json: {\n      reportDate,\n      requestedSprint,\n      question,\n      totalTasks: tasks.length,\n      completedCount,\n      completionRate,\n      statusCounts,\n      blockedCount: blockedTasks.length,\n      overdueCount: overdueTasks.length,\n      unassignedCount: unassignedTasks.length,\n      sprintHealth,\n      blockedTasks,\n      overdueTasks,\n      unassignedTasks,\n      tasks\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        672,
+        0
+      ],
+      "id": "160b1724-3033-4e82-95ae-0a94b60a73e7",
+      "name": "Process Sprint Data"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.mem0.ai/v3/memories/search/",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {}
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\"query\":\"Find previous weekly sprint snapshots, repeated blockers, overdue tasks, and project status trends.\",\"filters\":{\"user_id\":\"3c-project-status-agent\"},\"top_k\":12}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        896,
+        0
+      ],
+      "id": "e9344505-e9b9-4b12-bbcb-c3454ea15f23",
+      "name": "mem0 - Search Sprint History",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "CbWu4Y0kDjP09HKP",
+          "name": "mem0 API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const sprint =\n  $(\"Process Sprint Data\").first().json;\n\nconst mem0Response =\n  $input.first().json || {};\n\nconst memories = Array.isArray(mem0Response.results)\n  ? mem0Response.results\n  : [];\n\nconst memorySummaries = memories.map(memory => ({\n  id: memory.id || \"\",\n  memory: memory.memory || \"\",\n  score: memory.score || 0,\n  metadata: memory.metadata || {},\n  created_at: memory.created_at || \"\"\n}));\n\nconst historicalText = memorySummaries\n  .map(memory => memory.memory)\n  .join(\" \")\n  .toLowerCase();\n\nconst stuckTasks = sprint.blockedTasks.filter(task => {\n  const taskId = task.task_id.toLowerCase();\n  const taskName = task.task_name.toLowerCase();\n\n  return (\n    historicalText.includes(taskId) ||\n    historicalText.includes(taskName)\n  );\n});\n\nconst trendText = memories.length === 0\n  ? \"No previous sprint snapshots are available yet. This is the baseline report.\"\n  : `Compared the current sprint with ${memories.length} previous memory records.`;\n\nreturn [\n  {\n    json: {\n      ...sprint,\n      historyCount: memories.length,\n      historicalMemories: memorySummaries,\n      stuckTasks,\n      stuckTaskCount: stuckTasks.length,\n      trendText\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        0
+      ],
+      "id": "ea524120-fd3b-4277-bf05-e39c17fe073c",
+      "name": "Prepare Agent Context"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.tokenfactory.nebius.com/v1/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ ({\n  model: \"Qwen/Qwen3-30B-A3B-Instruct-2507\",\n  messages: [\n    {\n      role: \"system\",\n      content: \"You are a Sprint Analysis Agent. Use only the supplied sprint data and historical memory. Do not invent facts. Return these sections: Sprint Health, Key Metrics, Blockers, Stuck Items, Risk Flags, Velocity Trend, and Answer to User Question.\"\n    },\n    {\n      role: \"user\",\n      content: \"Analyze this sprint context and answer its question: \" + JSON.stringify($json)\n    }\n  ],\n  temperature: 0.3,\n  max_tokens: 1500\n}) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        1360,
+        0
+      ],
+      "id": "c39d99bd-8605-4e5a-9021-2cbd58ca3ea2",
+      "name": "Nebius - Sprint Analyzer",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "AS2pWAIneDN5Clpa",
+          "name": "Nebius API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.tokenfactory.nebius.com/v1/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ ({\n  model: \"Qwen/Qwen3-30B-A3B-Instruct-2507\",\n  messages: [\n    {\n      role: \"system\",\n      content: \"You are a professional project status report generator. Use only the supplied analysis and source data. Do not invent facts. Produce a concise stakeholder-ready Markdown report.\"\n    },\n    {\n      role: \"user\",\n      content:\n        \"Generate the FINAL REPORT using this exact structure:\\n\\n\" +\n        \"# Weekly Sprint Status Report\\n\" +\n        \"## Date\\n\" +\n        \"## Executive Summary\\n\" +\n        \"## Sprint Dashboard\\n\" +\n        \"| Metric | Value |\\n\" +\n        \"|---|---|\\n\" +\n        \"| Total Tasks | X |\\n\" +\n        \"| Completed | X |\\n\" +\n        \"| Completion Rate | X% |\\n\" +\n        \"| In Progress | X |\\n\" +\n        \"| Blocked | X |\\n\" +\n        \"| Overdue | X |\\n\" +\n        \"| Unassigned | X |\\n\\n\" +\n        \"## Blockers and Risks\\n\" +\n        \"## Velocity Trend\\n\" +\n        \"## Items Stuck More Than One Sprint\\n\" +\n        \"## Completed Work\\n\" +\n        \"## Prioritized Action Items\\n\" +\n        \"## Answer to User Question\\n\\n\" +\n        \"SPRINT ANALYSIS:\\n\" +\n        $json.choices[0].message.content +\n        \"\\n\\nVERIFIED SOURCE DATA:\\n\" +\n        JSON.stringify($('Prepare Agent Context').first().json)\n    }\n  ],\n  temperature: 0.2,\n  max_tokens: 1800\n}) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        1584,
+        0
+      ],
+      "id": "6ff62f89-125f-492d-bd6d-be535add539d",
+      "name": "Nebius - Report Generator",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "AS2pWAIneDN5Clpa",
+          "name": "Nebius API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.mem0.ai/v3/memories/add/",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ ({\n  user_id: \"3c-project-status-agent\",\n  messages: [\n    {\n      role: \"user\",\n      content:\n        \"Weekly sprint snapshot: \" +\n        JSON.stringify({\n          reportDate: $('Process Sprint Data').first().json.reportDate,\n          sprint: $('Process Sprint Data').first().json.requestedSprint,\n          totalTasks: $('Process Sprint Data').first().json.totalTasks,\n          completedCount: $('Process Sprint Data').first().json.completedCount,\n          completionRate: $('Process Sprint Data').first().json.completionRate,\n          statusCounts: $('Process Sprint Data').first().json.statusCounts,\n          blockedTasks: $('Process Sprint Data').first().json.blockedTasks.map(\n            task => ({\n              task_id: task.task_id,\n              task_name: task.task_name,\n              blocker_reason: task.blocker_reason\n            })\n          ),\n          overdueCount: $('Process Sprint Data').first().json.overdueCount,\n          unassignedCount: $('Process Sprint Data').first().json.unassignedCount,\n          sprintHealth: $('Process Sprint Data').first().json.sprintHealth\n        })\n    }\n  ],\n  metadata: {\n    source: \"n8n\",\n    project: \"Intelligent Project Status Agent\",\n    sprint: $('Process Sprint Data').first().json.requestedSprint,\n    report_date: $('Process Sprint Data').first().json.reportDate\n  },\n  infer: false\n}) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        1808,
+        0
+      ],
+      "id": "2129491f-cedb-431c-83dc-695b1166cdb6",
+      "name": "mem0 - Save Weekly Snapshot",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "CbWu4Y0kDjP09HKP",
+          "name": "mem0 API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const context =\n  $(\"Prepare Agent Context\").first().json;\n\nconst analysis =\n  $(\"Nebius - Sprint Analyzer\").first()\n    .json.choices[0].message.content;\n\nconst report =\n  $(\"Nebius - Report Generator\").first()\n    .json.choices[0].message.content;\n\nconst memoryResponse =\n  $input.first().json || {};\n\nreturn [\n  {\n    json: {\n      success: true,\n      reportDate: context.reportDate,\n      sprint: context.requestedSprint,\n      question: context.question,\n      sprintHealth: context.sprintHealth,\n      totalTasks: context.totalTasks,\n      completedCount: context.completedCount,\n      completionRate: context.completionRate,\n      blockedCount: context.blockedCount,\n      overdueCount: context.overdueCount,\n      unassignedCount: context.unassignedCount,\n      stuckTaskCount: context.stuckTaskCount,\n      trend: context.trendText,\n      historyDepth: context.historyCount + 1,\n      memoryStatus:\n        memoryResponse.status ||\n        memoryResponse.message ||\n        \"submitted\",\n      analysis,\n      report\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2032,
+        0
+      ],
+      "id": "f0e2504b-63c7-446c-be2f-347049af81bb",
+      "name": "Format Final Output"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        2256,
+        0
+      ],
+      "id": "74d7748b-c73d-43a6-b2dc-c843660f7784",
+      "name": "Return Status Report"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook - Sprint Report": {
+      "main": [
+        [
+          {
+            "node": "GitHub - Download Sprint CSV",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GitHub - Download Sprint CSV": {
+      "main": [
+        [
+          {
+            "node": "Parse Sprint CSV",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Sprint CSV": {
+      "main": [
+        [
+          {
+            "node": "Process Sprint Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process Sprint Data": {
+      "main": [
+        [
+          {
+            "node": "mem0 - Search Sprint History",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "mem0 - Search Sprint History": {
+      "main": [
+        [
+          {
+            "node": "Prepare Agent Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Agent Context": {
+      "main": [
+        [
+          {
+            "node": "Nebius - Sprint Analyzer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Nebius - Sprint Analyzer": {
+      "main": [
+        [
+          {
+            "node": "Nebius - Report Generator",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Nebius - Report Generator": {
+      "main": [
+        [
+          {
+            "node": "mem0 - Save Weekly Snapshot",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "mem0 - Save Weekly Snapshot": {
+      "main": [
+        [
+          {
+            "node": "Format Final Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Final Output": {
+      "main": [
+        [
+          {
+            "node": "Return Status Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "8b41ac92-b80b-4f1a-ad2b-4c952b035fcf",
+  "meta": {
+    "instanceId": "632ec898b9571ff84a6a18233ab3a5d35b9ce7b693d7e76407c18626a21494ae"
+  },
+  "nodeGroups": [],
+  "id": "fGcvaG8ScTy0xNGa",
+  "tags": []
+}
